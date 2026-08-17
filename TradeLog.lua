@@ -50,6 +50,27 @@ function TradeLog_OnLoad(self)
 	self:RegisterEvent("UI_ERROR_MESSAGE");
 end
 
+-- Register our minimap button with MinimapButtonButton (MBB) if it is
+-- installed. MBB only auto-collects minimap buttons whose frame names
+-- follow specific naming conventions and whose globals were created in
+-- Lua; our button is created in XML and is named "TradeListFrameButton",
+-- so it would be missed. MBB keeps its options in the global saved
+-- variable MinimapButtonButtonOptions and uses the whitelist table by
+-- reference, so adding our button there (before PLAYER_LOGIN, where MBB
+-- does its scan) makes MBB collect it without modifying MBB itself.
+-- If the user explicitly ignores the button in MBB (blacklist), that
+-- decision is respected.
+local function TradeLog_RegisterWithMBB()
+	local mbbOptions = _G.MinimapButtonButtonOptions;
+	if(type(mbbOptions) ~= "table" or type(mbbOptions.whitelist) ~= "table") then
+		return; -- MBB not installed or not ready
+	end
+	if(type(mbbOptions.blacklist) == "table" and mbbOptions.blacklist["TradeListFrameButton"]) then
+		return; -- user explicitly chose to ignore this button
+	end
+	mbbOptions.whitelist["TradeListFrameButton"] = true;
+end
+
 function TradeLog_OnVariableLoad()
 	-- local menu = CreateFrame("Frame", "TBT_AnnounceChannelDropDown", TradeFrame, "UIDropDownMenuTemplate");
 	-- menu:SetPoint("BOTTOMLEFT", "TradeFrame", "BOTTOMLEFT", 80, 49);
@@ -79,6 +100,7 @@ function TradeLog_OnVariableLoad()
 	if(TradeLog_Announce_Checked) then TBT_AnnounceCB:SetChecked(1); end;
 
 	if TradeLogFrame_CreateMinimapButton then TradeLogFrame_CreateMinimapButton() end
+	TradeLog_RegisterWithMBB();
 end
 
 function TradeLog_OnEvent(self, event, arg1, arg2)
