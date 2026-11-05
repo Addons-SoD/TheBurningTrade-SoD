@@ -1,5 +1,7 @@
 
 local _
+-- ForeverCompat.lua（toc 中先于本 XML 加载）提供的现代 API 兼容层
+local C = TBT_Compat
 
 TBT_PORTAL_MAPPING = {
 	[TBT_PORTAL_1]="Interface\\AddOns\\TheBurningTrade\\icons\\9.tga",
@@ -24,15 +26,37 @@ local function SetOrHookScript(frame, scriptName, func)
 end
 
 function TBTFrame_OnLoad(self)
-	self:RegisterEvent("LOOT_READY");
+	C.RegisterEvent(self, "LOOT_READY");
+
+	-- 交易窗口是 FrameXML 的 UI；wowf 若连 TradeFrame 都没有（理论上不会发生），
+	-- 只跳过界面增强，法术书扫描等逻辑照常进行。
+	if not TradeFrame then
+		TBTFrame_OnPlayerEnter()
+		return
+	end
 
 	--display the trade recepient info
 	local targetInfoText = TradeFrame:CreateFontString("TradeFrameTargetInfoText", "ARTWORK", "GameFontNormal");
 	targetInfoText:SetWidth(100);
 	targetInfoText:SetHeight(12);
 	targetInfoText:SetJustifyH("RIGHT");
-	targetInfoText:SetPoint("TOPLEFT", "TradeFrameRecipientNameText", "BOTTOMLEFT", 0, -8);
-	hooksecurefunc("TradeFrame_OnShow", function(self)if(UnitExists("NPC"))then TradeFrameTargetInfoText:SetText(UnitClass("NPC").." - "..UnitLevel("NPC"));end end);
+	-- 现代交易窗口的对方名字 FontString 名字未变则沿用，否则退化为挂在交易窗口上
+	local recipientAnchor = _G.TradeFrameRecipientNameText or TradeFrame;
+	targetInfoText:SetPoint("TOPLEFT", recipientAnchor, "BOTTOMLEFT", 0, -8);
+	-- UnitClass/UnitLevel 有可能返回 secret value（12.x），拼接前必须过滤
+	local function TBTFrame_UpdateTargetInfo()
+		if not UnitExists("NPC") then return end
+		local class, level = UnitClass("NPC"), UnitLevel("NPC");
+		if class and level and not C.IsSecret(class) and not C.IsSecret(level) then
+			TradeFrameTargetInfoText:SetText(class.." - "..level);
+		end
+	end
+	-- wowf 上 TradeFrame_OnShow 未必还是全局函数，缺失时改用脚本钩子
+	if type(_G.TradeFrame_OnShow) == "function" then
+		C.HookGlobal("TradeFrame_OnShow", TBTFrame_UpdateTargetInfo);
+	else
+		C.HookScript(TradeFrame, "OnShow", TBTFrame_UpdateTargetInfo);
+	end
 
 	--button for whisper
 	local button = CreateFrame("Button", "TradeFrameTargetWhisperButton", TradeFrame, "UIPanelButtonTemplate");
@@ -41,7 +65,11 @@ function TBTFrame_OnLoad(self)
 	button:SetPoint("TOPLEFT", "TradeFrameTargetInfoText", "BOTTOMLEFT", 0, -2);
 	button:SetText(TBT_RIGHT_BUTTON.whisper);
 	button:SetScript("OnClick", function(self)
-		ChatFrame_SendTell(TBT_UnitName("NPC"));
+		-- TBT_UnitName 在名字是 secret value 时返回 nil：此时无法密语，直接跳过
+		local target = TBT_UnitName("NPC");
+		if target then
+			C.CallGlobal("ChatFrame_SendTell", target);
+		end
 	end)
 
 	--button for emote1
@@ -50,7 +78,7 @@ function TBTFrame_OnLoad(self)
 	button:SetHeight(21);
 	button:SetPoint("LEFT", "TradeFrameTargetWhisperButton", "RIGHT", 5, 0);
 	button:SetText(TBT_RIGHT_BUTTON.ask);
-	button:SetScript("OnClick", function(self) DoEmote("hungry", "NPC") end);
+	button:SetScript("OnClick", function(self) C.CallGlobal("DoEmote", "hungry", "NPC") end);
 
 	--button for emote2
 	button = CreateFrame("Button", "TradeFrameTargetEmote2Button", TradeFrame, "UIPanelButtonTemplate");
@@ -58,7 +86,7 @@ function TBTFrame_OnLoad(self)
 	button:SetHeight(21);
 	button:SetPoint("LEFT", "TradeFrameTargetEmote1Button", "RIGHT", 5, 0);
 	button:SetText(TBT_RIGHT_BUTTON.thank);
-	button:SetScript("OnClick", function(self) DoEmote("thank", "NPC") end);
+	button:SetScript("OnClick", function(self) C.CallGlobal("DoEmote", "thank", "NPC") end);
 
 	--button for click-targetting, positioned at portrait.
 	button = CreateFrame("Button", "TradeFrameTargetRecipientButton", TradeFrame, "SecureActionButtonTemplate")
@@ -72,17 +100,35 @@ function TBTFrame_OnLoad(self)
 
 
 	--for alt+leftclick quick trade
-	hooksecurefunc("ContainerFrameItemButton_OnModifiedClick", function(self, button)
+	-- 取按钮对应的背包号/槽位：现代客户端可能把容器按钮挂在"合并背包"窗口下，
+	-- GetParent():GetID() 不再等于背包号，优先用 FrameXML 的换算函数。
+	local function TBT_GetBagSlot(itemButton)
+		if type(_G.ContainerFrameItemButton_CalculateItemSlot) == "function" then
+			local ok, bag, slot = pcall(ContainerFrameItemButton_CalculateItemSlot, itemButton);
+			if ok and bag and slot then return bag, slot end
+		end
+		local parent = itemButton:GetParent();
+		if parent and parent.GetID and itemButton.GetID then
+			return parent:GetID(), itemButton:GetID();
+		end
+		return nil, nil;
+	end
+
+	-- 时代版本里拍卖行相关全局函数在 modern 客户端已不存在，全部走能力探测
+	C.HookGlobal("ContainerFrameItemButton_OnModifiedClick", function(self, button)
+		local bag, slot = TBT_GetBagSlot(self);
+		if not bag or not slot then return end
+
 		if(button == "LeftButton" and IsAltKeyDown() ) then
 			if(InboxFrame and InboxFrame:IsVisible()) then
-				MailFrameTab_OnClick(nil, 2);
+				C.CallGlobal("MailFrameTab_OnClick", nil, 2);
 			end
 			if(SendMailAttachment1 and SendMailAttachment1:IsVisible()) then
-				UseContainerItem(self:GetParent():GetID(), self:GetID());
+				C.UseContainerItem(bag, slot);
 			elseif(AuctionsItemButton and AuctionsItemButton:IsVisible()) then
-				PickupContainerItem(self:GetParent():GetID(), self:GetID());
-				ClickAuctionSellItemButton();
-				AuctionsFrameAuctions_ValidateAuction();
+				C.PickupContainerItem(bag, slot);
+				C.CallGlobal("ClickAuctionSellItemButton");
+				C.CallGlobal("AuctionsFrameAuctions_ValidateAuction");
 				if(CursorHasItem()) then ClearCursor(); end;
 			end
 		end
@@ -102,21 +148,22 @@ function TBTFrame_OnLoad(self)
 				AuctionFrameFilters_Update();
 			end
 			]]
-			ChatEdit_InsertLink(GetContainerItemLink(self:GetParent():GetID(), self:GetID()));
-			AuctionFrameBrowse_Search();
+			C.ChatEdit_InsertLink(C.GetContainerItemLink(bag, slot));
+			C.CallGlobal("AuctionFrameBrowse_Search");
 		end
 
 		if(button=="RightButton" and IsControlKeyDown() and IsAltKeyDown() and AuctionsItemButton and AuctionsItemButton:IsVisible()) then
-			PickupContainerItem(self:GetParent():GetID(), self:GetID());
-			ClickAuctionSellItemButton();
-			AuctionsFrameAuctions_ValidateAuction();
-			AuctionsCreateAuctionButton_OnClick();
+			C.PickupContainerItem(bag, slot);
+			C.CallGlobal("ClickAuctionSellItemButton");
+			C.CallGlobal("AuctionsFrameAuctions_ValidateAuction");
+			C.CallGlobal("AuctionsCreateAuctionButton_OnClick");
 		end
 	end)
 	TBTFrame_OnPlayerEnter()
 end
 
 function TBTFrame_SetButtonSpell(button, spell)
+	if not button then return end
 	if not InCombatLockdown() then
 		button:SetAttribute("type", "spell");
 		button:SetAttribute("spell", spell);
@@ -126,6 +173,7 @@ end
 
 function TBT_TradeItem(self, type)
 	local item, quantity,spell,maxRank,spells,i;
+	if not TBT_MaxSpellRank then return end -- 法术书尚未扫描完成（TBTFrame_OnPlayerEnter）
 	maxRank = TBT_MaxSpellRank[type];
 	if(maxRank) then
 		TBTFrame_SetButtonSpell(self, "");
@@ -151,15 +199,16 @@ function TBT_TradeItem(self, type)
 		if(slot) then
 			local emptySlot = false;
 			for i=1,6 do
-				if(not GetTradePlayerItemInfo(i)) then
+				if(not C.GetTradeItemInfo("Player", i)) then
 					emptySlot = true;
 				end;
 			end
 			if(emptySlot) then
-				PickupContainerItem(bag, slot);
-				StackSplitFrame:Hide();
-				TradeFrame_OnMouseUp();
-				return;
+				if(C.PickupContainerItem(bag, slot)) then
+					if(StackSplitFrame) then StackSplitFrame:Hide(); end
+					C.PlaceCursorItemInTrade();
+					return;
+				end
 			end
 		end
 		TBTFrame_SetButtonSpell(self, spell);
@@ -167,16 +216,18 @@ function TBT_TradeItem(self, type)
 end
 
 function GetCurrentMageSpell()
-	if not TBT_CurrentPortal then return end
+	-- 旧存档里 TBT_CurrentPortal 可能是字符串，做一次类型保护
+	if type(TBT_CurrentPortal) ~= "table" then return nil end
 	return TBT_CurrentPortal[1],TBT_CurrentPortal[2]
 end
 
 local function GetPortalTexture(spellName)
-	if not spellName then return "" end
+	if not spellName then return nil end
 	return TBT_PORTAL_MAPPING[spellName]
 end
 
 function CreatePortalButtons(cbutton)
+	if type(TBT_CurrentPortal) ~= "table" then return end
 	TBT_MagePortalButtons = {}
 	local radius = 45
 	local angle = 22.5
@@ -204,8 +255,9 @@ function CreatePortalButtons(cbutton)
 	end)
 
 	for _i,_spellInfo in pairs(TBT_MagePortals) do
-		xoff = radius* cos(angle)
-		yoff = radius* sin(angle)
+		-- 用 math.cos/math.sin（全局 cos/sin 属 WoW 便利别名，wowf 上不保证存在）
+		xoff = radius* math.cos(angle)
+		yoff = radius* math.sin(angle)
 		local button = CreateFrame("Button", "TradeFramePortalButton".._i, TradeFrame, "TBTButtonTemplate");
 		button:SetWidth(26);
 		button:SetHeight(26);
@@ -230,13 +282,18 @@ function CreatePortalButtons(cbutton)
 			TBTTooltip:Show()
 		end)
 		button:Hide()
-		tinsert(TBT_MagePortalButtons,button)
+		table.insert(TBT_MagePortalButtons,button)
 		angle = angle + 45
 	end
 end
 
 function TogglePortalPanel(tog)
 	if tog == TBT_portalShown then return end
+	-- 法师面板只在法术书里有传送门且按钮已创建时才有意义
+	if not TBTPortalPanel or not TradeFramePortalButtonCenter
+		or not TradeFramePlayerSpell3Button or type(TBT_CurrentPortal) ~= "table" then
+		return
+	end
 
 	_G.TBTPortalPanel:SetPoint("CENTER",TradeFramePlayerSpell3Button,"CENTER")
 	_G.TBTPortalPanel:SetAlpha(0.7)
@@ -261,7 +318,8 @@ function TogglePortalPanel(tog)
 end
 
 function TBTFrame_CreateLeftButton(class)
-	if(getglobal("TradeFramePlayerSpell1Button")~=nil)then return end; --already created
+	if(_G.TradeFramePlayerSpell1Button~=nil)then return end; --already created
+	if not TradeFrame then return end -- 没有交易窗口就不做界面增强
 
 	local button = nil;
 	if(class=="MAGE") then
@@ -348,7 +406,8 @@ function TBTFrame_CreateLeftButton(class)
 		button:SetPoint("TOPLEFT", "TradeFrame", "TOPLEFT", 70, -30);
 		button:SetAttribute("type","spell");
 		button:SetAttribute("spell", TBT_UNLOCK_SKILL_NAME);
-		button:SetScript("PostClick", function(self) ClickTargetTradeButton(7); end);
+		-- ClickTargetTradeButton 在 modern 客户端仍由 C 层提供，缺失时静默跳过
+		button:SetScript("PostClick", function(self) C.ClickTargetTradeButton(7); end);
 	end
 end
 
@@ -364,26 +423,22 @@ function TBTFrame_OnPlayerEnter()
 			TBT_MagePortals= {}
 		end
 		--look through player's spell book
+		-- wowf 已无 GetSpellInfo，改走 C_SpellBook（见 ForeverCompat.GetSpellBookItem）
 		local i = 1
 		local spellName, spellIcon,id;
-		while true do
-			spellName, spellIcon,id =nil,nil,nil;
-			local function f()
-				spellName, _,spellIcon,_,_,_,id= GetSpellInfo(i, BOOKTYPE_SPELL);
-			end
-			pcall(f);
+		-- 上限 2000 只是防呆：现代法术书可能返回非 nil 的空名，避免死循环
+		while i <= 2000 do
+			spellName, spellIcon, id = C.GetSpellBookItem(i, BOOKTYPE_SPELL);
 
 			if not spellName then
 				do break end
 			end
 
-
-
 			if(class=="MAGE")then
 				--collect portals
 
 				if string.find(spellName,TBT_SPELL_PORTAL) then
-					tinsert(TBT_MagePortals,{spellName,spellIcon})
+					table.insert(TBT_MagePortals,{spellName,spellIcon})
 				end
 				UpdateMaxRank("water", id);
 				UpdateMaxRank("food", id);
@@ -400,9 +455,14 @@ function TBTFrame_OnPlayerEnter()
 end
 
 function TBTFrame_OnEvent(self, event, ...)
+	-- 现代客户端的拾取入口可能被 C_Loot 取代，缺失时直接跳过自动拾取
+	if type(_G.GetNumLootItems) ~= "function" or type(_G.GetLootSlotInfo) ~= "function"
+		or type(_G.LootSlot) ~= "function" then
+		return
+	end
 	if(GetNumLootItems() == 1) then
-		local iconPath, _, _, _ = GetLootSlotInfo(1);
-		if(string.find(iconPath, "Interface\\Icons\\INV_Enchant_") == 1) then
+		local iconPath = GetLootSlotInfo(1);
+		if(iconPath and string.find(iconPath, "Interface\\Icons\\INV_Enchant_") == 1) then
 			LootSlot(1);
 		end
 	end
@@ -426,35 +486,47 @@ function UpdateMaxRank(type, id)
 end
 
 function TBT_FindItem(item,quantity,type)
-	local bag,slog,i;
-	for bag=0,NUM_CONTAINER_FRAMES do
-		for slot=1,GetContainerNumSlots(bag) do
-			local _, count, locked, _ = GetContainerItemInfo(bag, slot)
+	local bag,slot,i;
+	local myName = TBT_UnitName("player"); -- secret 名字时为 nil，见下方降级处理
+	for bag=0,C.GetNumBags() do
+		for slot=1,C.GetContainerNumSlots(bag) do
+			local _, count, locked = C.GetContainerItemInfo(bag, slot)
 			if (count and not locked and count >= quantity ) then
-				local itemLink = GetContainerItemLink(bag, slot);
-				local found, _, name = string.find(itemLink, "^|%x+|H.+|h%[(.+)%]")
-				if item == name then
+				local itemLink = C.GetContainerItemLink(bag, slot);
+				local found, _, name = string.find(itemLink or "", "^|%x+|H.+|h%[(.+)%]")
+				if (found and item == name) then
 					TBT_debug("item==name",name);
 					--to distinguish the healthstone made by other warlock
-					if(type=="stone")then
+					if(type=="stone" and GameTooltip)then
+						local maker = nil; -- nil 表示"无法判断制造者"
 						GameTooltip:SetOwner(UIParent,"ANCHOR_LEFT");
-						GameTooltip:SetBagItem(bag,slot);
-						for i=1,GameTooltip:NumLines(),1 do
-							local text = getglobal("GameTooltipTextLeft"..i):GetText();
-							if(text) then
-								local _,_,name = string.find(text,TBT_GAMETOOLTIP_MADE_BY);
-								if(name) then
-									TBT_debug("name=",name);
-									if(name==UnitName("player"))then
-										GameTooltip:Hide();
-										return bag,slot
+						-- GameTooltip:SetBagItem 在现代可能被 C_Container 取代，由兼容层探测
+						if C.GameTooltipSetBagItem(GameTooltip, bag, slot) then
+							local numLines = GameTooltip.NumLines and GameTooltip:NumLines() or 0;
+							for i=1,numLines,1 do
+								local line = _G["GameTooltipTextLeft"..i];
+								local text = line and line:GetText();
+								if(text) then
+									local _,_,makerText = string.find(text,TBT_GAMETOOLTIP_MADE_BY);
+									if(makerText) then
+										maker = makerText;
+										break;
 									end
-									break;
 								end
 							end
 						end
 						GameTooltip:Hide();
-					else
+						TBT_debug("name=",maker);
+						if(maker)then
+							if(not myName or maker==myName)then
+								return bag,slot
+							end
+							-- 别人做的治疗石，继续找下一个
+						else
+							-- tooltip 不可用 / 没有"由 xx 制造"字样：无法区分，直接采用（降级）
+							return bag, slot;
+						end
+					elseif (type~="stone") then
 						return bag, slot;
 					end
 				end
@@ -476,7 +548,10 @@ end
 --for {name, server} return "name-server"
 function TBT_UnitName(unit)
 	local name,server = UnitName(unit);
-	if(server) then
+	if(not name)then return nil end
+	-- 12.x 起 UnitName 可能返回 secret value：禁止拼接，交回 nil 让调用方降级
+	if(C.IsSecret(name) or C.IsSecret(server))then return nil end
+	if(server and server ~= "") then
 		return name.."-"..server;
 	else
 		return name;

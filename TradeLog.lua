@@ -1,9 +1,13 @@
+-- ForeverCompat.lua 提供的现代 API 兼容层（toc 中先于本文件加载）
+local C = TBT_Compat
+
 SLASH_TRADELOGSHOW1 = "/tbtdebug";
 SlashCmdList["TRADELOGSHOW"] = function(msg)
+	if(not TradeLog_TradesHistory)then return end
 	DEFAULT_CHAT_FRAME:AddMessage("(debug)TradeId-"..msg.." |Htradelog:"..msg.."|h[DETAIL]|h:");
 	TBT_CURRENT_TRADE = TradeLog_TradesHistory[0+msg];
 	TradeLog_OutputLog();
-	table.remove(TradeLog_TradesHistory, getn(TradeLog_TradesHistory));
+	table.remove(TradeLog_TradesHistory, #TradeLog_TradesHistory);
 end
 
 TBT_CURRENT_TRADE = nil;
@@ -21,7 +25,7 @@ function TradeLog_CreateNewTrade()
 		when = nil,
 		where = nil,
 		who = nil,
-		player=UnitName("player"),
+		player=TBT_UnitName("player") or TBT_SECRET_NAME,
 		playerMoney = 0,
 		targetMoney = 0,
 		playerItems = {},
@@ -36,18 +40,19 @@ end
 
 function TradeLog_OnLoad(self)
 
-	self:RegisterEvent("ADDON_LOADED");
-	self:RegisterEvent("TRADE_SHOW");
-	self:RegisterEvent("TRADE_CLOSED");
-	self:RegisterEvent("TRADE_REQUEST_CANCEL");
-	self:RegisterEvent("PLAYER_TRADE_MONEY");
+	-- 事件名在版本间可能已被移除，统一走兼容层注册（C_EventUtils 预检 + pcall）
+	C.RegisterEvent(self, "ADDON_LOADED");
+	C.RegisterEvent(self, "TRADE_SHOW");
+	C.RegisterEvent(self, "TRADE_CLOSED");
+	C.RegisterEvent(self, "TRADE_REQUEST_CANCEL");
+	C.RegisterEvent(self, "PLAYER_TRADE_MONEY");
 
-	self:RegisterEvent("TRADE_MONEY_CHANGED");
-	--self:RegisterEvent("TRADE_PLAYER_ITEM_CHANGED"); --this is an uncertain problem, seems TRADE_PLAYER_ITEM_CHANGED always fire 2 times?
-	self:RegisterEvent("TRADE_TARGET_ITEM_CHANGED");
-	self:RegisterEvent("TRADE_ACCEPT_UPDATE");
-	self:RegisterEvent("UI_INFO_MESSAGE");
-	self:RegisterEvent("UI_ERROR_MESSAGE");
+	C.RegisterEvent(self, "TRADE_MONEY_CHANGED");
+	--C.RegisterEvent(self, "TRADE_PLAYER_ITEM_CHANGED"); --this is an uncertain problem, seems TRADE_PLAYER_ITEM_CHANGED always fire 2 times?
+	C.RegisterEvent(self, "TRADE_TARGET_ITEM_CHANGED");
+	C.RegisterEvent(self, "TRADE_ACCEPT_UPDATE");
+	C.RegisterEvent(self, "UI_INFO_MESSAGE");
+	C.RegisterEvent(self, "UI_ERROR_MESSAGE");
 end
 
 -- Register our minimap button with MinimapButtonButton (MBB) if it is
@@ -77,11 +82,19 @@ function TradeLog_OnVariableLoad()
 	-- UIDropDownMenu_SetWidth(TBT_AnnounceChannelDropDown, 62, 3);
     -- TBT_AnnounceChannelDropDown:SetScript("OnShow", function(self) self:SetFrameLevel(TradeFrame:GetFrameLevel()) end)
 
-	local cb = CreateFrame("CheckButton", "TBT_AnnounceCB", TradeFrame, "InterfaceOptionsCheckButtonTemplate");
-	cb:SetPoint("BOTTOMLEFT", TradeFrame, "BOTTOMLEFT", 16, 0);
+	-- 没有交易窗口时退化为挂在 UIParent 上，功能不丢
+	local parent = TradeFrame or UIParent;
+	-- 模板名在 modern 客户端仍存在，但缺模板时 CreateFrame 会抛错，这里降级为无样式复选框
+	local okCreate, cb = pcall(CreateFrame, "CheckButton", "TBT_AnnounceCB", parent, "InterfaceOptionsCheckButtonTemplate");
+	if(not okCreate or not cb)then
+		cb = CreateFrame("CheckButton", "TBT_AnnounceCB", parent);
+	end
+	cb:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 16, 0);
 	cb:SetWidth(26);
 	cb:SetHeight(26);
-	TBT_AnnounceCBText:SetText(TRADE_LOG_ANNOUNCE);
+	if TBT_AnnounceCBText then
+		TBT_AnnounceCBText:SetText(TRADE_LOG_ANNOUNCE);
+	end
 	cb.tooltipText = TRADE_LOG_ANNOUNCE_TIP;
 	cb:SetScript("OnClick", function(self) TradeLog_Announce_Checked = self:GetChecked()and true or false; end);
 
@@ -103,17 +116,28 @@ function TradeLog_OnVariableLoad()
 	TradeLog_RegisterWithMBB();
 end
 
+-- 交易错误/提示文本常量在各版本间可能缺失（也可能是 nil），
+-- 这里逐个比对且跳过 nil，避免 nil==nil 造成的误判
+local function TradeLog_IsText(text, ...)
+	if(not text)then return false end
+	for i = 1, select("#", ...) do
+		local expected = select(i, ...)
+		if(expected and expected==text)then return true end
+	end
+	return false
+end
+
 function TradeLog_OnEvent(self, event, arg1, arg2)
 	--local arg1 = ...;
 	if (event=="UI_ERROR_MESSAGE") then
-		if(arg2==ERR_TRADE_BAG_FULL or arg2==ERR_TRADE_MAX_COUNT_EXCEEDED or arg2==ERR_TRADE_TARGET_BAG_FULL or arg2==ERR_TRADE_TARGET_MAX_COUNT_EXCEEDED) then
+		if TradeLog_IsText(arg2, ERR_TRADE_BAG_FULL, ERR_TRADE_MAX_COUNT_EXCEEDED, ERR_TRADE_TARGET_BAG_FULL, ERR_TRADE_TARGET_MAX_COUNT_EXCEEDED) then
 			curr().result = "error";
 			curr().reason=arg2;
 			TradeLog_LogTradeAndReset();
-		elseif (arg2==ERR_TRADE_TARGET_DEAD or arg2==ERR_TRADE_TOO_FAR) then
+		elseif TradeLog_IsText(arg2, ERR_TRADE_TARGET_DEAD, ERR_TRADE_TOO_FAR) then
 			DEFAULT_CHAT_FRAME:AddMessage(arg2, 1, 0.2, 0.2);
 		end
-	elseif (event=="UI_INFO_MESSAGE" and ( arg2==ERR_TRADE_CANCELLED or arg2==ERR_TRADE_COMPLETE) ) then
+	elseif (event=="UI_INFO_MESSAGE" and TradeLog_IsText(arg2, ERR_TRADE_CANCELLED, ERR_TRADE_COMPLETE)) then
 		if(arg2==ERR_TRADE_CANCELLED) then
 			curr().result = "cancelled";
 		else
@@ -144,7 +168,9 @@ function TradeLog_OnEvent(self, event, arg1, arg2)
 	end
 
 	if (event=="TRADE_REQUEST_CANCEL") then --judge the trade distance for further analysing the cancel reason
-		if(UnitName("NPC")) then
+		-- 先取再判断：UnitName 在 12.x 可能返回 secret value，不能直接拿来做拼接/比较
+		local ok, npcName = pcall(UnitName, "NPC");
+		if(ok and not C.IsSecret(npcName) and npcName ~= nil) then
 			if (CheckInteractDistance("npc", 2)) then
 				curr().toofar = "no";
 			else
@@ -154,20 +180,30 @@ function TradeLog_OnEvent(self, event, arg1, arg2)
 	end
 
 	if (event=="TRADE_SHOW") then
-		curr().who=TBT_UnitName("NPC");
+		-- 12.x 起 UnitName 可能返回 secret value：只记录占位符，禁止拼接/输出真实名字
+		local ok, name, server = pcall(UnitName, "NPC");
+		if(not ok)then name, server = nil, nil end
+		if(not name)then
+			-- 还没有交易对象信息，保持 who 为空（原逻辑：视为没打开过窗口）
+		elseif(C.IsSecret(name) or C.IsSecret(server))then
+			curr().who = TBT_SECRET_NAME;
+			curr().whoSecret = true;
+		elseif(server and server ~= "")then
+			curr().who = name.."-"..server;
+		else
+			curr().who = name;
+		end
 	end
 end
 
 function TradeLog_UpdateItemInfo(id, unit, items)
-	local funcInfo = getglobal("GetTrade"..unit.."ItemInfo");
-	local funcLink = getglobal("GetTrade"..unit.."ItemLink");
-
 	local name, texture, numItems, quality, isUsable, enchantment;
 	--why GetTradePlayerItemInfo and GetTradeTargetItemInfo return different things?
+	-- wowf：这两个入口统一由兼容层探测（先全局，再 C_TradeInfo）
 	if(unit=="Target") then
-		name, texture, numItems, quality, isUsable, enchantment = funcInfo(id);
+		name, texture, numItems, quality, isUsable, enchantment = C.GetTradeItemInfo(unit, id);
 	else
-		name, texture, numItems, quality, enchantment = funcInfo(id);
+		name, texture, numItems, quality, enchantment = C.GetTradeItemInfo(unit, id);
 	end
 
 	if(not name) then
@@ -175,7 +211,7 @@ function TradeLog_UpdateItemInfo(id, unit, items)
 		return;
 	end
 
-	local itemLink = funcLink(id);
+	local itemLink = C.GetTradeItemLink(unit, id);
 
 	items[id] = {
 		name = name,
@@ -188,8 +224,8 @@ function TradeLog_UpdateItemInfo(id, unit, items)
 end
 
 function TradeLog_UpdateMoney()
-	curr().playerMoney = GetPlayerTradeMoney();
-	curr().targetMoney = GetTargetTradeMoney();
+	curr().playerMoney = C.GetTradeMoney("player");
+	curr().targetMoney = C.GetTradeMoney("target");
 end
 
 function TradeLog_AnalyseCancelReason()
@@ -257,7 +293,13 @@ function TradeLog_OutputLog()
 	if(curr().playerItems[7] and curr().playerItems[7].name and curr().playerItems[7].enchantment) then enPlayer = curr().playerItems[7].enchantment end;
 	if(curr().targetItems[7] and curr().targetItems[7].name and curr().targetItems[7].enchantment) then enTarget = curr().targetItems[7].enchantment end;
 
-	local whoLink = "|Hplayer:"..curr().who.."|h"..curr().who.."|h";
+	-- 名字是 secret value 时不能拼接 |Hplayer: 超链接，只输出占位符
+	local whoLink;
+	if(curr().whoSecret)then
+		whoLink = curr().who;
+	else
+		whoLink = "|Hplayer:"..curr().who.."|h"..curr().who.."|h";
+	end
 	if(curr().result == "complete") then
 		local hasSendAny, hasReceiveAny, strSend, strReceive
 
@@ -334,7 +376,7 @@ function TradeLog_OutputLog()
 		DEFAULT_CHAT_FRAME:AddMessage(msg, 1, 0.1, 0.1);
 	end
 
-	if(TBT_AnnounceCB:GetChecked()) then
+	if(TBT_AnnounceCB and TBT_AnnounceCB:GetChecked()) then
 		TradeLog_AnnounceTrade(curr());
 	end
 end
@@ -399,14 +441,19 @@ function TradeLog_AnnounceTrade(trade)
 
 	elseif(trade.result == "cancelled") then
 		msg = string.gsub(TRADE_LOG_CANCELLED, "%%t", whoLink);
-		msg = string.gsub(msg, "%%r", CANCEL_REASON_TEXT_ANNOUNCE[curr().reason]);
+		-- 原代码这里误用了 curr().reason（此时已换新交易对象，取到 nil 会让 gsub 报错），
+		-- 改为使用刚结束的这笔交易的 reason，并对缺失值兜底
+		local reasonText = (CANCEL_REASON_TEXT_ANNOUNCE and CANCEL_REASON_TEXT_ANNOUNCE[trade.reason]) or trade.reason or "";
+		msg = string.gsub(msg, "%%r", reasonText);
 	else
 		msg = string.gsub(TRADE_LOG_FAILED, "%%t", whoLink);
-		msg = string.gsub(msg, "%%r", trade.reason);
+		msg = string.gsub(msg, "%%r", trade.reason or "");
 	end
 
 	local channel = TradeLog_FindAnnounceChannel(TradeLog_AnnounceChannel);
 	if(channel=="WHISPER")then
+		-- secret 名字无法作为密语目标，跳过密语通告（其余频道照常）
+		if(trade.whoSecret or not trade.who)then return end
 		SendChatMessage(msg,channel,nil,trade.who);
 	else
 		SendChatMessage(msg,channel);
@@ -464,14 +511,18 @@ function TradeLog_GetMoneyPlainText(money)
 end
 
 --for UI
+-- 说明：通告频道下拉框当前未启用（TradeLog_OnVariableLoad 中的创建代码已注释），
+-- 现代客户端也已弃用 UIDropDownMenu_* 系列，这里保留能力探测以免被调用时报错。
 function TBT_AnnounceChannelDropDown_OnClick(self)
+	if(type(UIDropDownMenu_SetSelectedValue) ~= "function")then return end
 	UIDropDownMenu_SetSelectedValue(TBT_AnnounceChannelDropDown, self.value);
-	TBT_AnnounceCB:SetChecked(1);
+	if(TBT_AnnounceCB)then TBT_AnnounceCB:SetChecked(1); end
 	TradeLog_AnnounceChannel = self.value;
 end
 
 function TBT_AnnounceChannelDropDown_Initialize()
-	local selectedValue = UIDropDownMenu_GetSelectedValue(getglobal("TBT_AnnounceChannelDropDown"));
+	if(type(UIDropDownMenu_GetSelectedValue) ~= "function" or type(UIDropDownMenu_AddButton) ~= "function")then return end
+	local selectedValue = UIDropDownMenu_GetSelectedValue(_G["TBT_AnnounceChannelDropDown"]);
 	local info;
 
 	info = {};

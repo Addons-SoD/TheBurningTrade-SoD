@@ -1,4 +1,4 @@
-﻿## Interface: 11508
+## Interface: 16001
 ## Title: The Burning Trade
 ## Title-zhCN: 交易记录及交易增强
 ## Title-zhTW: 交易記錄及交易增強
@@ -7,11 +7,15 @@
 ## Notes-zhTW: |cff00ff00TheBurningTrade|r|n|cffbc8f8f交易記錄及交易介面增強。獨立版本，無外部依賴。|r
 ## SavedVariablesPerCharacter: TradeLog_TradesHistory, TRADE_LOG_BUTTON_POS, TradeLog_Announce_Checked, TradeLog_AnnounceChannel,TBT_CurrentPortal
 ## Author: Warbaby,Mod By Terry@BF
-## Version: 1.15.8-standalone
+## Version: 1.16.0-forever
 
 localization-enUS.lua
 localization-zhCN.lua
 localization-zhTW.lua
+
+# 现代 API 兼容层（C_SpellBook / C_Container / C_Item / C_TradeInfo / 事件注册），
+# 必须先于下面的 XML 加载
+ForeverCompat.lua
 
 TheBurningTrade.xml
 TradeLogFrame.xml

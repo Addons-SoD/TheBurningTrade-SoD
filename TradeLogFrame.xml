@@ -135,25 +135,16 @@
 						self:SetFrameLevel(self:GetFrameLevel() + 2);
 					</OnLoad>
 					<OnClick>
-						if ( IsControlKeyDown() ) then
-							DressUpItemLink(self.itemLink);
-						elseif ( IsShiftKeyDown() ) then
-							ChatEdit_InsertLink(self.itemLink);
-						end
+						TBT_ItemLinkButton_OnClick(self);
 					</OnClick>
 					<OnEnter>
-						if(self:GetParent().itemLink) then
-							GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
-							GameTooltip:SetHyperlink(self:GetParent().itemLink);
-						end
-						CursorUpdate();
+						TBT_ItemLinkButton_OnEnter(self);
 					</OnEnter>
 					<OnLeave>
-						GameTooltip:Hide();
-						ResetCursor();
+						TBT_ItemLinkButton_OnLeave(self);
 					</OnLeave>
 					<OnUpdate>
-						CursorOnUpdate(self);
+						TBT_ItemLinkButton_OnUpdate(self);
 					</OnUpdate>
 				</Scripts>
 			</Button>
@@ -171,28 +162,19 @@
 				</Anchors>
 				<Scripts>
 					<OnClick>
-						if ( IsControlKeyDown() ) then
-							DressUpItemLink(self.itemLink);
-						elseif ( IsShiftKeyDown() ) then
-							ChatEdit_InsertLink(self.itemLink);
-						end
+						TBT_ItemLinkButton_OnClick(self);
 					</OnClick>
 					<OnLoad>
 						self:SetFrameLevel(self:GetFrameLevel() + 2);
 					</OnLoad>
 					<OnEnter>
-						if(self:GetParent().itemLink) then
-							GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
-							GameTooltip:SetHyperlink(self:GetParent().itemLink);
-						end
-						CursorUpdate();
+						TBT_ItemLinkButton_OnEnter(self);
 					</OnEnter>
 					<OnLeave>
-						GameTooltip:Hide();
-						ResetCursor();
+						TBT_ItemLinkButton_OnLeave(self);
 					</OnLeave>
 					<OnUpdate>
-						CursorOnUpdate(self);
+						TBT_ItemLinkButton_OnUpdate(self);
 					</OnUpdate>
 				</Scripts>
 			</Button>
@@ -717,18 +699,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						local string = getglobal(self:GetName().."Text");
-						--OptionsFrame_EnableSlider(self);
-						local name = self:GetName();
-						getglobal(name.."Thumb"):Show();
-						getglobal(name.."Text"):SetVertexColor(NORMAL_FONT_COLOR.r , NORMAL_FONT_COLOR.g , NORMAL_FONT_COLOR.b);
-						getglobal(name.."Low"):SetVertexColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b);
-						getglobal(name.."High"):SetVertexColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b);
-
-						self:SetMinMaxValues(0.8, 1.5);
-						self:SetValueStep(0.1);
-						self:SetValue(1);
-						string:SetText(TRADE_LIST_SCALE);
+						TBT_ScaleSlider_OnLoad(self);
 					</OnLoad>
 					<OnValueChanged>
 						TradeLogFrame:SetScale(self:GetValue());
@@ -750,8 +721,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						getglobal(self:GetName().."Text"):SetText(TRADE_LIST_FILTER);
-						self:SetChecked(nil);
+						TBT_FilterCheckbox_OnLoad(self);
 					</OnLoad>
 					<OnClick>
 						TradeListScrollFrame_Update(self);
@@ -769,8 +739,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						WhoFrameColumn_SetWidth(self, 138);
-						_G[self:GetName().."Name"]:SetText(TRADE_LIST_HEADER_WHEN)
+						TBT_ColumnHeader_OnLoad(self, 138, TRADE_LIST_HEADER_WHEN);
 					</OnLoad>
 				</Scripts>
 			</Button>
@@ -784,8 +753,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						WhoFrameColumn_SetWidth(self, 100);
-						_G[self:GetName().."Name"]:SetText(TRADE_LIST_HEADER_WHO)
+						TBT_ColumnHeader_OnLoad(self, 100, TRADE_LIST_HEADER_WHO);
 					</OnLoad>
 				</Scripts>
 			</Button>
@@ -799,8 +767,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						WhoFrameColumn_SetWidth(self, 95);
-						_G[self:GetName().."Name"]:SetText(TRADE_LIST_HEADER_WHERE)
+						TBT_ColumnHeader_OnLoad(self, 95, TRADE_LIST_HEADER_WHERE);
 					</OnLoad>
 				</Scripts>
 			</Button>
@@ -814,8 +781,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						WhoFrameColumn_SetWidth(self, 60);
-						_G[self:GetName().."Name"]:SetText(TRADE_LIST_HEADER_SEND)
+						TBT_ColumnHeader_OnLoad(self, 60, TRADE_LIST_HEADER_SEND);
 					</OnLoad>
 				</Scripts>
 			</Button>
@@ -829,8 +795,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						WhoFrameColumn_SetWidth(self, 60);
-						_G[self:GetName().."Name"]:SetText(TRADE_LIST_HEADER_RECEIVE)
+						TBT_ColumnHeader_OnLoad(self, 60, TRADE_LIST_HEADER_RECEIVE);
 					</OnLoad>
 				</Scripts>
 			</Button>
@@ -844,8 +809,7 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						WhoFrameColumn_SetWidth(self, 57);
-						_G[self:GetName().."Name"]:SetText(TRADE_LIST_HEADER_RESULT)
+						TBT_ColumnHeader_OnLoad(self, 57, TRADE_LIST_HEADER_RESULT);
 					</OnLoad>
 				</Scripts>
 			</Button>
@@ -1004,7 +968,7 @@
 				</Anchors>
 				<Scripts>
 					<OnVerticalScroll>
-						FauxScrollFrame_OnVerticalScroll(self, offset, 16, TradeListScrollFrame_Update);
+						TBT_ScrollFrame_OnVerticalScroll(self, offset);
 					</OnVerticalScroll>
 				</Scripts>
 			</ScrollFrame>
@@ -1084,12 +1048,7 @@
 		</Layers>
 		<Scripts>
 			<OnLoad>
-				InitialMovableMinimapButton(self:GetName(), "TRADE_LOG_BUTTON_POS", nil);
-				if(getglobal(self.POS) == nil) then
-					setglobal(self.POS, 190);
-				end
-				self:MovingPos();
-				self:Show();
+				TBT_MinimapButton_OnLoad(self);
 			</OnLoad>
 			<OnClick>
 				if( TradeListFrame:IsVisible() ) then

@@ -36,11 +36,16 @@
 		</Layers>
 		<Scripts>
 			<OnEnter>
-				TradeFramePlayerSpell3Button.stats='showed'
+				-- 非法师或法术书里没有传送门时该按钮不存在，直接访问会抛错
+				local b = _G.TradeFramePlayerSpell3Button;
+				if b then b.stats='showed' end
 			</OnEnter>
 			<OnLeave>
-				TradeFramePlayerSpell3Button.stats='left'
-				TradeFramePlayerSpell3Button.lefttime=0
+				local b = _G.TradeFramePlayerSpell3Button;
+				if b then
+					b.stats='left'
+					b.lefttime=0
+				end
 			</OnLeave>
 		</Scripts>
 	</Frame>

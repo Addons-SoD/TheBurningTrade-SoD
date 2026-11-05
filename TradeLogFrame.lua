@@ -1,20 +1,29 @@
+-- ForeverCompat.lua 提供的现代 API 兼容层（toc 中先于本文件加载）
+local C = TBT_Compat
+
+-- wowf 客户端已不再提供 getglobal 这个便利函数，这里用局部别名兜住本文件里
+-- 保留下来的 getglobal("xxx"..n) 调用（等价于 _G["xxx"..n]）。
+local getglobal = function(name) return _G[name] end
+
 function TradeLogFrame_OnLoad(self)
 	table.insert(UISpecialFrames, self:GetName()); --for esc close frame
 
 	local TradeLog_SetHyperlink_Origin = ItemRefTooltip.SetHyperlink;
 	ItemRefTooltip.SetHyperlink = function(self,link)
-	   if(strsub(link, 1, 8)=="tradelog") then
+	   if(string.sub(link, 1, 8)=="tradelog") then
 		HideUIPanel(self);
 	        return;
 	   end
 	   return TradeLog_SetHyperlink_Origin(self,link);
 	end
-	hooksecurefunc("SetItemRef", TradeLogFrame_SetItemRef);
+	-- SetItemRef 在 modern 客户端仍属 FrameXML，缺失时只是点击链接无效，不报错
+	C.HookGlobal("SetItemRef", TradeLogFrame_SetItemRef);
 end
 
 function TradeLogFrame_SetItemRef(link, text, button)
-	if ( strsub(link, 1, 8) == "tradelog" ) then
-		local id = 0+gsub(gsub(strsub(link,10),"/2","|"),"/1","/");
+	if ( string.sub(link, 1, 8) == "tradelog" ) then
+		-- WoW 的全局 gsub/strsub 便利别名（wowf 上已不再保证存在，改用 string 库）
+		local id = 0+string.gsub(string.gsub(string.sub(link,10),"/2","|"),"/1","/");
 		if(id and TradeLog_TradesHistory) then
 			for _, v in pairs(TradeLog_TradesHistory) do
 				if(v.id==id) then
@@ -29,8 +38,8 @@ end;
 
 function TradeLogFrame_FillDetailLog(trade)
 	--DEFAULT_CHAT_FRAME:AddMessage("|CFF00B4FF|Htradelog:"..trade.id.."|h[TradeLog]|h|r");
-	MoneyFrame_Update("TradeLogRecipientMoneyFrame", trade.targetMoney);
-	MoneyFrame_Update("TradeLogPlayerMoneyFrame", trade.playerMoney);
+	C.MoneyFrame_Update("TradeLogRecipientMoneyFrame", trade.targetMoney);
+	C.MoneyFrame_Update("TradeLogPlayerMoneyFrame", trade.playerMoney);
 
 	TradeLogFramePlayerNameText:SetText(trade.player);
 	TradeLogFrameRecipientNameText:SetText(trade.who);
@@ -81,27 +90,31 @@ function TradeLogFrame_UpdateItemDetail(frame, name, texture, numItems, isUsable
 	buttonText:SetTextHeight(12);
 	TradeLogRecipientMoneyFrame:SetScale(0.9);
 	TradeLogPlayerMoneyFrame:SetScale(0.9);
-	local tradeItemButton = getglobal(frameName.."ItemButton");
+	local tradeItemButton = _G[frameName.."ItemButton"];
 	local tradeItem = frame;
-	SetItemButtonTexture(tradeItemButton, texture);
-	SetItemButtonCount(tradeItemButton, numItems);
-	SetItemButtonQuality(tradeItemButton, itemLink and select(3, GetItemInfo(itemLink)),itemLink);
+	-- ItemButtonTemplate 系列在现代客户端可能被 C_ 前缀实现取代，统一走能力探测
+	C.CallGlobal("SetItemButtonTexture", tradeItemButton, texture);
+	C.CallGlobal("SetItemButtonCount", tradeItemButton, numItems);
+	-- GetItemInfo 在 wowf 上已被 C_Item.GetItemInfo 取代（第 3 个返回值仍是品质）
+	C.CallGlobal("SetItemButtonQuality", tradeItemButton, itemLink and select(3, C.GetItemInfo(itemLink)), itemLink);
 	if ( isUsable or not name ) then
-		SetItemButtonTextureVertexColor(tradeItemButton, 1.0, 1.0, 1.0);
-		SetItemButtonNameFrameVertexColor(tradeItem, 1.0, 1.0, 1.0);
-		SetItemButtonSlotVertexColor(tradeItem, 1.0, 1.0, 1.0);
+		C.CallGlobal("SetItemButtonTextureVertexColor", tradeItemButton, 1.0, 1.0, 1.0);
+		C.CallGlobal("SetItemButtonNameFrameVertexColor", tradeItem, 1.0, 1.0, 1.0);
+		C.CallGlobal("SetItemButtonSlotVertexColor", tradeItem, 1.0, 1.0, 1.0);
 	else
-		SetItemButtonTextureVertexColor(tradeItemButton, 0.9, 0, 0);
-		SetItemButtonNameFrameVertexColor(tradeItem, 0.9, 0, 0);
-		SetItemButtonSlotVertexColor(tradeItem, 1.0, 0, 0);
+		C.CallGlobal("SetItemButtonTextureVertexColor", tradeItemButton, 0.9, 0, 0);
+		C.CallGlobal("SetItemButtonNameFrameVertexColor", tradeItem, 0.9, 0, 0);
+		C.CallGlobal("SetItemButtonSlotVertexColor", tradeItem, 1.0, 0, 0);
 	end
 end
 
 function TradeListScrollFrame_Update(self)
 	local line,offset,count;
+	-- 复选框来自 XML；万一界面脚本没加载也不该整条记录流程报错
+	local onlyComplete = TradeListOnlyCompleteCB and TradeListOnlyCompleteCB:GetChecked();
 
 	count=0;
-	if(TradeListOnlyCompleteCB:GetChecked()) then
+	if(onlyComplete) then
 		for _, v in pairs(TradeLog_TradesHistory) do
 			if(v.result=="complete")then count=count+1 end
 		end
@@ -109,13 +122,15 @@ function TradeListScrollFrame_Update(self)
 		count = table.getn(TradeLog_TradesHistory);
 	end
 
-	FauxScrollFrame_Update(TradeListScrollFrame,count,15,16);
+	-- FauxScrollFrame 在现代客户端仍存在，但已不是官方推荐滚动框架，做能力探测
+	C.FauxScrollFrameUpdate(TradeListScrollFrame,count,15,16);
 
-	if(not FauxScrollFrame_GetOffset(TradeListScrollFrame)) then
+	local scrollOffset = C.FauxScrollFrameGetOffset(TradeListScrollFrame);
+	if(not scrollOffset) then
 		offset = 1;
 	else
-		offset=FauxScrollFrame_GetOffset(TradeListScrollFrame)+1;
-		if(TradeListOnlyCompleteCB:GetChecked()) then
+		offset=scrollOffset+1;
+		if(onlyComplete) then
 			for k, v in pairs(TradeLog_TradesHistory) do
 				if(v.result=="complete")then offset = offset - 1 end;
 				if(offset == 0) then
@@ -129,7 +144,7 @@ function TradeListScrollFrame_Update(self)
 	while line<=15 do
 		if offset<=table.getn(TradeLog_TradesHistory) then
 			local trade=TradeLog_TradesHistory[offset];
-			if(not TradeListOnlyCompleteCB:GetChecked() or trade.result=="complete") then
+			if(not onlyComplete or trade.result=="complete") then
 				local _,_,month,day,hour,min = string.find(trade.when, "(%d+)-(%d+) (%d+):(%d+)")
 				getglobal("TradeListFrameButton"..line).offset = offset;
 
@@ -233,7 +248,7 @@ function TradeLog_KeepOnlyToday()
 end
 
 function TradeListFrame_TradeTooltip(self, trade)
-	GameTooltip_SetDefaultAnchor(GameTooltip, self);
+	C.GameTooltipSetDefaultAnchor(GameTooltip, self);
 	if(trade.result=="complete")then
 		GameTooltip:SetText(TRADE_LIST_RESULT_TEXT.complete, 1, 1, 1);
 		GameTooltip:AddLine(TRADE_LIST_COMPLETE_TOOLTIP, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1);
@@ -256,7 +271,7 @@ function TradeListFrame_ShowDetail(trade)
 end;
 
 function InitialMovableMinimapButton(ButtonName, PosVariableName, UseSquareMap)
-	local button = getglobal(ButtonName);
+	local button = _G[ButtonName];
 	if(not button) then return nil; end
 
 	button["POS"] = PosVariableName;
@@ -276,16 +291,16 @@ function InitialMovableMinimapButton(ButtonName, PosVariableName, UseSquareMap)
 
 	button.MovingPos = function(self)
 		local xpos,ypos
-		local IconPos = getglobal(self["POS"]);
+		local IconPos = _G[self["POS"]];
 
 		if self["square"] then
-			xpos = 110 * cos(IconPos or 0)
-			ypos = 110 * sin(IconPos or 0)
+			xpos = 110 * math.cos(IconPos or 0)
+			ypos = 110 * math.sin(IconPos or 0)
 			xpos = math.max(-82,math.min(xpos,84))
 			ypos = math.max(-86,math.min(ypos,82))
 		else
-			xpos = 82*cos(IconPos or 0)
-			ypos = 82*sin(IconPos or 0)
+			xpos = 82*math.cos(IconPos or 0)
+			ypos = 82*math.sin(IconPos or 0)
 		end
 
 		button:SetPoint("TOPLEFT",Minimap,"TOPLEFT",52-xpos,ypos-52)
@@ -296,7 +311,8 @@ function InitialMovableMinimapButton(ButtonName, PosVariableName, UseSquareMap)
 		local xmin,ymin = Minimap:GetLeft() or 400, Minimap:GetBottom() or 400
 		xpos = xmin-xpos/Minimap:GetEffectiveScale()+70
 		ypos = ypos/Minimap:GetEffectiveScale()-ymin-70
-		setglobal( self["POS"], math.deg(math.atan2(ypos,xpos)) )
+		-- math.atan2 在 Lua 5.1 存在，兼容层做了兜底
+		_G[ self["POS"] ] = math.deg(C.Atan2(ypos,xpos))
 		self:MovingPos();
 	end
 
@@ -319,11 +335,99 @@ end
 function TradeListFrame_MiniMapToggle(tog)
 	if tog then
 		if(_G.TradeListFrameButton.POS == nil) then
-			setglobal(TradeListFrameButton.POS, 190);
+			_G[TradeListFrameButton.POS] = 190;
 		end
 		TradeListFrameButton:MovingPos();
 		TradeListFrameButton:Show();
 	else
 		TradeListFrameButton:Hide();
 	end
+end
+
+-- ===========================================================================
+-- XML 回调：TradeLogFrame.xml 里的界面脚本统一调用这些函数，
+-- 这样界面脚本不直接依赖 DressUpItemLink / CursorOnUpdate / WhoFrameColumn_SetWidth
+-- 等在现代客户端可能已改名或移除的 FrameXML 全局函数。
+-- ===========================================================================
+
+local function TBT_ItemLinkOfButton(button)
+	-- 物品信息记在 itemButton 的父 frame 上（frame.itemLink），按钮自身只做兜底
+	local link = button.itemLink;
+	local parent = button.GetParent and button:GetParent();
+	if(not link and parent)then link = parent.itemLink end
+	return link;
+end
+
+function TBT_ItemLinkButton_OnClick(button, mouseButton)
+	local link = TBT_ItemLinkOfButton(button);
+	if(not link)then return end
+	if(IsControlKeyDown())then
+		C.DressUpItemLink(link);
+	elseif(IsShiftKeyDown())then
+		C.ChatEdit_InsertLink(link);
+	end
+end
+
+function TBT_ItemLinkButton_OnEnter(button)
+	local link = TBT_ItemLinkOfButton(button);
+	if(link)then
+		GameTooltip:SetOwner(button, "ANCHOR_RIGHT");
+		GameTooltip:SetHyperlink(link);
+	end
+	C.CursorUpdate();
+end
+
+function TBT_ItemLinkButton_OnLeave(button)
+	GameTooltip:Hide();
+	C.ResetCursor();
+end
+
+function TBT_ItemLinkButton_OnUpdate(button, elapsed)
+	C.CursorOnUpdate(button);
+end
+
+-- 记录列表的列标题
+function TBT_ColumnHeader_OnLoad(head, width, title)
+	C.CallGlobal("WhoFrameColumn_SetWidth", head, width);
+	local nameText = _G[head:GetName().."Name"];
+	if(nameText)then nameText:SetText(title); end
+end
+
+-- 详情窗口缩放滑条
+function TBT_ScaleSlider_OnLoad(slider)
+	local name = slider:GetName();
+	local thumb, text = _G[name.."Thumb"], _G[name.."Text"];
+	local low, high = _G[name.."Low"], _G[name.."High"];
+	if(thumb)then thumb:Show(); end
+	if(text)then
+		text:SetVertexColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
+		text:SetText(TRADE_LIST_SCALE);
+	end
+	if(low)then low:SetVertexColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b); end
+	if(high)then high:SetVertexColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b); end
+	slider:SetMinMaxValues(0.8, 1.5);
+	slider:SetValueStep(0.1);
+	slider:SetValue(1);
+end
+
+-- "仅列出成功交易"复选框
+function TBT_FilterCheckbox_OnLoad(checkbox)
+	local text = _G[checkbox:GetName().."Text"];
+	if(text)then text:SetText(TRADE_LIST_FILTER); end
+	checkbox:SetChecked(nil);
+end
+
+-- 小地图按钮：wowf 已无 getglobal/setglobal，位置变量改用 _G 读写
+function TBT_MinimapButton_OnLoad(button)
+	InitialMovableMinimapButton(button:GetName(), "TRADE_LOG_BUTTON_POS", nil);
+	if(_G[button.POS] == nil)then
+		_G[button.POS] = 190;
+	end
+	button:MovingPos();
+	button:Show();
+end
+
+-- 记录列表的滚动条
+function TBT_ScrollFrame_OnVerticalScroll(scrollFrame, offset)
+	C.FauxScrollFrameOnVerticalScroll(scrollFrame, offset, 16, TradeListScrollFrame_Update);
 end
